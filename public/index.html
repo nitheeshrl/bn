@@ -84,6 +84,8 @@ $('snap').onclick=async()=>{
   try{
     const ocr=await localOcr(image);
     $('out').textContent='Checking…';
+   console.log(image);
+   console.log(ocr);
     const r=await(await fetch(API,{method:'POST',body:JSON.stringify({image,...l,ocr})})).json();
     const t={ok:'Verified',warn:'Verified with a warning',fail:'Verification failed',unreadable:'Photo unclear, please scan again'}[r.status]||'Error';
     $('out').innerHTML=`<div class="r ${r.status}"><b>${t}</b>${r.read&&r.read.batch?`<div><small>Batch ${e(r.read.batch)} · mfg ${e(r.read.mfg)} · exp ${e(r.read.exp)}</small></div>`:''}<ul>${(r.issues||[]).map(i=>'<li>'+e(i)+'</li>').join('')}</ul></div>`;
