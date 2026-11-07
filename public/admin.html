@@ -1,0 +1,30 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin</title><style>body{font:14px system-ui,sans-serif;max-width:900px;margin:0 auto;padding:16px;background:#f6f7f9;color:#14181f}
+.card{background:#fff;border:1px solid #e1e4ea;border-radius:12px;padding:16px;margin-bottom:14px;overflow-x:auto}textarea,input{width:100%;box-sizing:border-box;padding:8px}
+button{padding:8px 12px;margin-top:8px}table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:6px;border-bottom:1px solid #e1e4ea;white-space:nowrap}
+.fail{color:#c0262d;font-weight:600}.warn,.unreadable{color:#a15c00}.ok{color:#0f8a4f}#al{background:#fde8e9;color:#c0262d;padding:10px;border-radius:8px;margin-bottom:14px}[hidden]{display:none}</style></head><body>
+<h2>Batch verification admin</h2>
+<div class="card" id="lg"><input id="pw" type="password" placeholder="Admin password"><button id="in">Sign in</button></div>
+<div id="app" hidden><div id="al" hidden></div>
+<div class="card"><b>Register batches</b><br><small>batch, USP, mfg date, expiry date (YYYY-MM-DD), one per line</small>
+<textarea id="bt" rows="4"></textarea><button id="sv">Save batches</button> <span id="m"></span></div>
+<div class="card"><b>Scans</b> <small>(refreshes every 15 s)</small><table><thead><tr><th>Time</th><th>Result</th><th>Batch</th><th>Issues</th><th>Location</th><th>Photo</th></tr></thead><tbody id="rs"></tbody></table></div>
+<div class="card" id="ph" hidden><img id="im" style="max-width:100%"><iframe id="mp" title="Scan location" hidden style="width:100%;height:260px;border:0;margin-top:10px;border-radius:8px"></iframe></div></div>
+<script>
+const $=i=>document.getElementById(i),e=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let pw=sessionStorage.k||'',seen=null;
+const api=(q,o={})=>fetch('/api/admin'+q,{...o,headers:{'x-admin-key':pw}});
+async function load(){const r=await api('');if(r.status==401){sessionStorage.k=pw='';$('lg').hidden=false;$('app').hidden=true;return false}
+const d=await r.json();$('lg').hidden=true;$('app').hidden=false;
+const f=d.filter(s=>s.status==='fail');$('al').hidden=!f.length;$('al').innerHTML='<b>'+f.length+' failed scan(s)</b> — latest: '+(f[0]?e(f[0].read.batch||'?')+': '+e(f[0].issues.join('; ')):'');
+if(seen!==null&&f.length>seen)try{new AudioContext().resume();document.title='⚠ New failed scan'}catch{}
+seen=f.length;
+$('rs').innerHTML=d.map(s=>`<tr><td>${new Date(s.ts).toLocaleString()}</td><td class="${s.status}">${s.status}</td><td>${e(s.read.batch)}</td><td>${e(s.issues.join('; '))}</td><td>${s.lat!=null?`<a target="_blank" href="https://www.google.com/maps?q=${s.lat},${s.lng}">${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}</a>`:'n/a'}</td><td><a href="#" data-id="${s.id}" data-lat="${s.lat??''}" data-lng="${s.lng??''}">Photo + map</a></td></tr>`).join('');return true}
+$('in').onclick=async()=>{pw=$('pw').value;sessionStorage.k=pw;if(await load())setInterval(load,15000)};
+$('sv').onclick=async()=>{const r=await(await api('',{method:'POST',body:JSON.stringify({text:$('bt').value})})).json();$('m').textContent=r.saved+' saved';$('bt').value=''};
+$('rs').onclick=async ev=>{const t=ev.target,id=t.dataset.id;if(!id)return;ev.preventDefault();
+const lat=parseFloat(t.dataset.lat),lng=parseFloat(t.dataset.lng);
+if(isNaN(lat)||isNaN(lng))$('mp').hidden=true;else{$('mp').src=`https://www.openstreetmap.org/export/embed.html?bbox=${lng-.002},${lat-.002},${lng+.002},${lat+.002}&layer=mapnik&marker=${lat},${lng}`;$('mp').hidden=false}
+const b=await(await api('?photo='+id)).blob();$('im').src=URL.createObjectURL(b);$('ph').hidden=false;$('ph').scrollIntoView()};
+if(pw)load().then(ok=>ok&&setInterval(load,15000));
+</script></body></html>

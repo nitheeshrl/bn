@@ -1,0 +1,95 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Verify product</title>
+<style>body{font:16px system-ui,sans-serif;max-width:520px;margin:0 auto;padding:16px;background:#f6f7f9;color:#14181f}
+.card{background:#fff;border:1px solid #e1e4ea;border-radius:12px;padding:16px}
+button{width:100%;padding:12px;margin-top:12px;border:0;border-radius:8px;background:#2554d8;color:#fff;font-size:16px;font-weight:600}
+button.g{background:#e1e4ea;color:#14181f}button:disabled{opacity:.5}
+.cam{position:relative;margin-top:10px;border-radius:10px;overflow:hidden;background:#000}
+video,#still{display:block;width:100%;max-height:60vh;object-fit:cover}
+#loc{position:absolute;left:0;right:0;bottom:0;padding:6px 10px;background:rgba(0,0,0,.65);color:#fff;font-size:13px}
+.r{border-radius:10px;padding:14px;margin-top:14px}
+.ok{background:#e3f6ec;color:#0f8a4f}.warn,.unreadable{background:#fff3da;color:#a15c00}.fail{background:#fde8e9;color:#c0262d}
+small{color:#667085}#map{width:100%;height:220px;border:0;border-radius:10px;margin-top:10px}[hidden]{display:none}</style></head><body>
+<h2>Verify your product</h2><div class="card">
+<p>Point the camera at the pack label so the batch code, USP code, manufacture and expiry dates are clear and in focus.</p>
+<div class="cam" id="cam" hidden><video id="v" playsinline muted autoplay></video><img id="still" alt="" hidden><div id="loc">Getting location…</div></div>
+<iframe id="map" title="Your location" hidden></iframe>
+<button id="start">Open camera</button>
+<button id="snap" hidden>Capture and verify</button>
+<button id="again" class="g" hidden>Scan another</button>
+<div id="out"></div></div>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script>
+const API='/api/verify';
+const $=i=>document.getElementById(i),e=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+let stream=null,watch=null,pos=null;
+const MON={JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,OCT:10,NOV:11,DEC:12},p2=n=>String(n).padStart(2,'0');
+function toDate(s,end){s=String(s).toUpperCase().replace(/[,.]/g,' ');let m,d=null,mo,y;
+ const yr=v=>v.length==2?'20'+v:v;
+ if(m=s.match(/(\d{4})[-\/ ](\d{1,2})[-\/ ](\d{1,2})/))return m[1]+'-'+p2(m[2])+'-'+p2(m[3]);
+ if(m=s.match(/(\d{1,2})[-\/ ](\d{1,2})[-\/ ](\d{2,4})/)){d=m[1];mo=+m[2];y=yr(m[3])}
+ else if(m=s.match(/(\d{1,2})[-\/ ]*([A-Z]{3})[A-Z]*[-\/ ]+(\d{2,4})/)){d=m[1];mo=MON[m[2]];y=yr(m[3])}
+ else if(m=s.match(/\b([A-Z]{3})[A-Z]*[-\/ ]+(\d{2,4})/)){mo=MON[m[1]];y=yr(m[2])}
+ else if(m=s.match(/(\d{1,2})[-\/ ](\d{4})/)){mo=+m[1];y=m[2]}
+ else return null;
+ if(!mo||mo>12)return null;
+ if(!d)d=end?new Date(+y,mo,0).getDate():1;
+ return y+'-'+p2(mo)+'-'+p2(d)}
+function parseLabel(t){const T=t.toUpperCase();
+ const find=(re)=>{const m=T.match(re);return m?m[1].trim():null};
+ const batch=find(/(?:BATCH\s*(?:NO|NUMBER|CODE)?|B\.?\s*NO|LOT\s*(?:NO)?)\.?\s*[:.\-]?\s*([A-Z0-9][A-Z0-9\-\/]{2,})/);
+ const usp=find(/USP\s*(?:CODE|NO)?\.?\s*[:.\-]?\s*([A-Z0-9][A-Z0-9\-]{2,})/);
+ const mf=find(/(?:MFG|MFD|MANUF[A-Z]*)\.?\s*(?:DATE)?\s*[:.\-]?\s*([A-Z0-9][A-Z0-9 \-\/.,]{4,16})/);
+ const ex=find(/(?:EXP|EXPIRY|EXPIRES)\.?\s*(?:DATE)?\s*[:.\-]?\s*([A-Z0-9][A-Z0-9 \-\/.,]{4,16})/);
+ return{batch,usp,mfg:mf&&toDate(mf,false),exp:ex&&toDate(ex,true)}}
+async function localOcr(b64){try{const r=await Tesseract.recognize('data:image/jpeg;base64,'+b64,'eng');return parseLabel(r.data.text)}catch{return null}}
+let shown=null;
+function showMap(){
+  if(!pos)return;
+  if(shown&&Math.abs(shown.lat-pos.lat)<.0003&&Math.abs(shown.lng-pos.lng)<.0003)return;
+  shown={lat:pos.lat,lng:pos.lng};
+  $('map').src=`https://www.openstreetmap.org/export/embed.html?bbox=${pos.lng-.002},${pos.lat-.002},${pos.lng+.002},${pos.lat+.002}&layer=mapnik&marker=${pos.lat},${pos.lng}`;$('map').hidden=false;
+}
+function startLoc(){
+  if(!navigator.geolocation){$('loc').textContent='Location not supported on this device';return}
+  watch=navigator.geolocation.watchPosition(p=>{
+    pos={lat:p.coords.latitude,lng:p.coords.longitude,acc:Math.round(p.coords.accuracy)};
+    showMap();
+    $('loc').textContent='Location: '+pos.lat.toFixed(5)+', '+pos.lng.toFixed(5)+' (accuracy '+pos.acc+' m)';
+  },()=>{$('loc').textContent='Location blocked. Please allow location access.'},{enableHighAccuracy:true,maximumAge:0,timeout:15000});
+}
+function stopAll(){
+  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
+  if(watch!=null){navigator.geolocation.clearWatch(watch);watch=null}
+}
+$('start').onclick=async()=>{
+  $('out').innerHTML='';
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920}},audio:false});
+  }catch{
+    $('out').innerHTML='<div class="r warn">Camera access is needed. Please allow the camera and open this page over HTTPS.</div>';return}
+  $('v').srcObject=stream;$('v').hidden=false;$('still').hidden=true;$('cam').hidden=false;
+  $('start').hidden=true;$('snap').hidden=false;$('again').hidden=true;
+  pos=null;shown=null;$('map').hidden=true;startLoc();
+};
+$('snap').onclick=async()=>{
+  const v=$('v');if(!v.videoWidth)return;
+  $('snap').disabled=true;
+  const k=Math.min(1,1600/Math.max(v.videoWidth,v.videoHeight)),c=document.createElement('canvas');
+  c.width=v.videoWidth*k;c.height=v.videoHeight*k;c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+  const url=c.toDataURL('image/jpeg',.85),image=url.split(',')[1],l=pos||{};
+  $('still').src=url;$('still').hidden=false;v.hidden=true;
+  stopAll();
+  $('out').textContent='Reading the label…';
+  try{
+    const ocr=await localOcr(image);
+    $('out').textContent='Checking…';
+    const r=await(await fetch(API,{method:'POST',body:JSON.stringify({image,...l,ocr})})).json();
+    const t={ok:'Verified',warn:'Verified with a warning',fail:'Verification failed',unreadable:'Photo unclear, please scan again'}[r.status]||'Error';
+    $('out').innerHTML=`<div class="r ${r.status}"><b>${t}</b>${r.read&&r.read.batch?`<div><small>Batch ${e(r.read.batch)} · mfg ${e(r.read.mfg)} · exp ${e(r.read.exp)}</small></div>`:''}<ul>${(r.issues||[]).map(i=>'<li>'+e(i)+'</li>').join('')}</ul></div>`;
+  }catch{$('out').innerHTML='<div class="r warn">Something went wrong. Please try again.</div>'}
+  $('snap').hidden=true;$('snap').disabled=false;$('again').hidden=false;
+};
+$('again').onclick=()=>{$('still').hidden=true;$('v').hidden=false;$('start').click()};
+window.addEventListener('pagehide',stopAll);
+</script></body></html>
