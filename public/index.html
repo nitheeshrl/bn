@@ -20,7 +20,7 @@ small{color:#667085}#map{width:100%;height:220px;border:0;border-radius:10px;mar
 <div id="out"></div></div>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script>
-const API='/api/verify';
+const API='http://localhost:3000/api/verify';
 const $=i=>document.getElementById(i),e=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 let stream=null,watch=null,pos=null;
 const MON={JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,OCT:10,NOV:11,DEC:12},p2=n=>String(n).padStart(2,'0');
